@@ -124,6 +124,7 @@ typedef uint8_t  u8;
 typedef int64_t i64;
 typedef int32_t i32;
 typedef int16_t i16;
+typedef int8_t  i8;
 
 typedef double f64;
 typedef float  f32;
@@ -253,12 +254,12 @@ typedef struct DqnMemStack
 	bool  Init             (const size_t size, const bool zeroClear, const u32 byteAlignment = 4);
 
 	// Memory API
-	void *Push(size_t size);
-	void  Pop (void *const ptr, size_t size);
-	void  Free();
-	bool  FreeMemBlock  (DqnMemStackBlock *memBlock);
-	bool  FreeLastBlock ();
-	void  ClearCurrBlock(const bool zeroClear);
+	void      *Push(size_t size);
+	void       Pop (void *const ptr, size_t size);
+	void       Free();
+	bool       FreeMemBlock  (DqnMemStackBlock *memBlock);
+	bool       FreeLastBlock ();
+	void       ClearCurrBlock(const bool zeroClear);
 
 	// Temporary Regions API
 	struct DqnMemStackTempRegion TempRegionBegin();
@@ -470,13 +471,13 @@ struct DqnArray
 
 	// Array state
 	i64 count;
-	i64 capacity;
+	i64 max;
 	T   *data;
 
 	// API
 	bool  Init        (const i64 size, DqnMemAPI api = DqnMemAPI_HeapAllocator());
 	bool  Free        ();
-	bool  Resize      (i64 newCapacity);
+	bool  Resize      (i64 newMax);
 	bool  Grow        ();
 	T    *Push        (const T *item, const i64 num);
 	T    *Push        (const T item);
@@ -510,8 +511,8 @@ bool DqnArray_Init(DqnArray<T> *const array, const size_t size,
 	array->data = (T *)memResult.newMemPtr;
 	if (!array->data) return false;
 
-	array->count    = 0;
-	array->capacity = size;
+	array->count = 0;
+	array->max   = size;
 	return true;
 }
 
@@ -523,14 +524,14 @@ bool DqnArray_Free(DqnArray<T> *const array)
 	if (array && array->data)
 	{
 		// TODO(doyle): Right now we assume free always works, and it probably should?
-		i64 sizeToFree = array->capacity * sizeof(T);
+		i64 sizeToFree = array->max * sizeof(T);
 		DqnMemAPICallbackInfo info =
 		    DqnMemAPIInternal_CallbackInfoAskFree(array->memAPI, array->data, sizeToFree);
 		array->memAPI.callback(info);
 		array->data = NULL;
 
-		array->count    = 0;
-		array->capacity = 0;
+		array->count = 0;
+		array->max   = 0;
 		return true;
 	}
 
@@ -538,12 +539,12 @@ bool DqnArray_Free(DqnArray<T> *const array)
 }
 
 template <typename T>
-bool DqnArray_Resize(DqnArray<T> *const array, i64 newCapacity)
+bool DqnArray_Resize(DqnArray<T> *const array, i64 newMax)
 {
 	if (!array || !array->data) return false;
 
-	i64 oldSize = array->capacity * sizeof(T);
-	i64 newSize = newCapacity * sizeof(T);
+	i64 oldSize = array->max * sizeof(T);
+	i64 newSize = newMax * sizeof(T);
 
 	DqnMemAPICallbackInfo info = DqnMemAPIInternal_CallbackInfoAskRealloc(
 	    array->memAPI, array->data, oldSize, newSize);
@@ -557,8 +558,8 @@ bool DqnArray_Resize(DqnArray<T> *const array, i64 newCapacity)
 
 	if (memResult.newMemPtr)
 	{
-		array->data     = (T *)memResult.newMemPtr;
-		array->capacity = newCapacity;
+		array->data = (T *)memResult.newMemPtr;
+		array->max  = newMax;
 		return true;
 	}
 	else
@@ -573,10 +574,10 @@ bool DqnArray_Grow(DqnArray<T> *const array)
 	if (!array || !array->data) return false;
 
 	const f32 GROWTH_FACTOR = 1.2f;
-	i64 newCapacity      = (i64)(array->capacity * GROWTH_FACTOR);
-	if (newCapacity == array->capacity) newCapacity++;
+	i64 newMax              = (i64)(array->max * GROWTH_FACTOR);
+	if (newMax == array->capacity) newMax++;
 
-	bool result = DqnArray_Resize(array, newCapacity);
+	bool result = DqnArray_Resize(array, newMax);
 	return result;
 }
 
@@ -586,12 +587,12 @@ T *DqnArray_Push(DqnArray<T> *const array, const T *item, const i64 num)
 	if (!array) return NULL;
 
 	i64 newSize = array->count + num;
-	if (array->count + num >= array->capacity)
+	if (array->count + num >= array->max)
 	{
 		if (!DqnArray_Resize(array, newSize)) return NULL;
 	}
 
-	DQN_ASSERT(array->count < array->capacity);
+	DQN_ASSERT(array->count < array->max);
 	for (auto i = 0; i < num; i++) array->data[array->count++] = item[i];
 
 	return &array->data[array->count-1];
@@ -683,7 +684,7 @@ bool DqnArray_RemoveStable(DqnArray<T> *const array, const i64 index)
 
 template <typename T> bool DqnArray<T>::Init  (const i64 size, DqnMemAPI api) { return DqnArray_Init(this, size, api); }
 template <typename T> bool DqnArray<T>::Free  ()                              { return DqnArray_Free(this); }
-template <typename T> bool DqnArray<T>::Resize(i64 newCapacity)               { return DqnArray_Resize(this, newCapacity); }
+template <typename T> bool DqnArray<T>::Resize(i64 newMax)                    { return DqnArray_Resize(this, newMax); }
 template <typename T> bool DqnArray<T>::Grow  ()                              { return DqnArray_Grow(this);}
 template <typename T> T*   DqnArray<T>::Push  (const T *item, const i64 num)  { return DqnArray_Push(this, item, num); }
 template <typename T> T*   DqnArray<T>::Push  (const T item)                  { return DqnArray_Push(this, item); }
@@ -1030,7 +1031,7 @@ struct DqnString
 
 	bool InitLiteralNoAlloc(char *const cstr, i32 cstrLen = -1);
 
-	bool Expand            (const i32 newMax);
+	bool Expand(const i32 newMax);
 
 	bool AppendStr (const DqnString strToAppend, i32 bytesToCopy = -1);
 	bool AppendCStr(const char *const cstr,      i32 bytesToCopy = -1);
@@ -1210,6 +1211,9 @@ enum DqnFileAction
 	// Clear the file contents to zero if it exists. Fails and returns false if
 	// file does not exist.
 	DqnFileAction_ClearIfExist,
+
+	// Always create, even if it exists
+	DqnFileAction_ForceCreate,
 };
 
 typedef struct DqnFile
@@ -2623,9 +2627,14 @@ FILE_SCOPE DqnMemAPICallbackResult DqnMemAPIInternal_StackAllocatorCallback(DqnM
 				// Else, last allocation but not enough space in block. Pop does
 				// not destroy the memory contents so this is safe.
 				stack->Pop(info.oldMemPtr, info.oldSize);
+				result.newMemPtr = stack->Push(info.newRequestSize);
+				return result;
+				
+
+				// TODO: Some bug here
 			}
 
-			// NOTE: Potential lost memory when this case occurs.
+			// NOTE: Lost memory when this case occurs.
 			result.newMemPtr = stack->Push(info.newRequestSize);
 
 			if (result.newMemPtr)
@@ -6556,6 +6565,7 @@ FILE_SCOPE bool DqnFileInternal_Win32OpenW(const wchar_t *const path,
 		case DqnFileAction_OpenOnly:         win32Action = OPEN_EXISTING; break;
 		case DqnFileAction_ClearIfExist:     win32Action = TRUNCATE_EXISTING; break;
 		case DqnFileAction_CreateIfNotExist: win32Action = CREATE_NEW; break;
+		case DqnFileAction_ForceCreate:      win32Action = CREATE_ALWAYS; break;
 	}
 
 	HANDLE handle = CreateFileW(path, win32Permission, 0, NULL, win32Action,
@@ -6716,7 +6726,7 @@ FILE_SCOPE bool DqnFileInternal_UnixOpen(const char *const path,
 		updateFlag = true;
 		switch (action)
 		{
-			default: DQN_ASSERT(DQN_INVALID_CODE_PATH);
+			default: DQN_ASSERT_HARD(DQN_INVALID_CODE_PATH);
 			case DqnFileAction_OpenOnly:
 			{
 				operation   = 'r';
@@ -6725,6 +6735,7 @@ FILE_SCOPE bool DqnFileInternal_UnixOpen(const char *const path,
 
 			case DqnFileAction_CreateIfNotExist:
 			case DqnFileAction_ClearIfExist:
+			case DqnFileAction_ForceCreate:
 			{
 				operation   = 'w';
 			}
@@ -7869,7 +7880,7 @@ DQN_FILE_SCOPE void DqnWin32_OutputDebugString(const char *const formatStr, ...)
 
 DQN_FILE_SCOPE i32 DqnWin32_GetEXEDirectory(char *const buf, const u32 bufLen)
 {
-	if (!buf || bufLen == 0) return 0;
+	if (!buf || bufLen == 0) return -1;
 	u32 copiedLen = GetModuleFileNameA(NULL, buf, bufLen);
 	if (copiedLen == bufLen) return -1;
 
