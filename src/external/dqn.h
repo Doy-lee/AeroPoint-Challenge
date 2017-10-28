@@ -236,7 +236,7 @@ enum DqnMemStackFlag
 	DqnMemStackFlag_IsFixedMemoryFromUser = (1 << 1),
 };
 
-typedef struct DqnMemStack
+struct DqnMemStack
 {
 	// The memory block allocated for the stack
 	struct DqnMemStackBlock *block;
@@ -248,78 +248,68 @@ typedef struct DqnMemStack
 	// Allocations are address aligned to this value. Not to be modified as popping allocations uses this to realign size
 	u32 byteAlign;
 
-	// Initialisation API
-	bool  InitWithFixedMem (u8 *const mem,     const size_t memSize, const u32 byteAlignment = 4);
-	bool  InitWithFixedSize(const size_t size, const bool zeroClear, const u32 byteAlignment = 4);
-	bool  Init             (const size_t size, const bool zeroClear, const u32 byteAlignment = 4);
+	// -- Initialisation API
+	// Uses fixed memory given by user. All allocations from the MemStack will be suballocated from the
+	// given memory. Allocations fail after the MemStack becomes full.
+	// stack:     Pass in a pointer to a zero cleared DqnMemStack struct.
+	// mem:       Memory to use for the memory stack
+	// byteAlign: Set the alignment of memory addresses for all allocated items from the memory stack.
+	// return:    FALSE if args are invalid, or insufficient memSize.
+	bool InitWithFixedMem(u8 *const mem,     const size_t memSize, const u32 byteAlign_ = 4);
 
-	// Memory API
-	void      *Push(size_t size);
-	void       Pop (void *const ptr, size_t size);
-	void       Free();
-	bool       FreeMemBlock  (DqnMemStackBlock *memBlock);
-	bool       FreeLastBlock ();
-	void       ClearCurrBlock(const bool zeroClear);
+	// The memory stack uses 1 initial allocation from the DqnMem_Alloc(). No further allocations are
+	// made. All allocations are suballocated from the first allocation.
+	// size: The amount of memory to allocate. Size gets aligned to the next "byteAlign"ed value.
+	bool InitWithFixedSize(const size_t size, const bool zeroClear, const u32 byteAlign_ = 4);
 
-	// Temporary Regions API
+	// Dynamically expandable stack. Akin to DqnMemStack_InitWithFixedSize() except if the MemStack does
+	// not have enough space for allocation it will automatically attach another MemBlock using
+	// DqnMem_Calloc().
+	bool Init(const size_t size, const bool zeroClear, const u32 byteAlign_ = 4);
+
+	// -- Memory API
+	// Allocate memory from the MemStack.
+	// size:   "size" gets aligned to the byte alignment of the stack.
+	// return: NULL if out of space OR stack is using fixed memory/size OR stack full and platform malloc fails.
+	void *Push(size_t size);
+
+	// Frees the given ptr. It MUST be the last allocated item in the stack, fails otherwise.
+	bool  Pop (void *const ptr, size_t size);
+
+	// Frees all blocks belonging to this stack.
+	void  Free();
+
+	// Frees the specified block belonging to the stack.
+	// return: FALSE if block doesn't belong this into calls DqnMem_Free() or invalid args.
+	bool  FreeMemBlock(DqnMemStackBlock *memBlock);
+
+	// Frees the last-most memory block. If last block, free that block making the MemStack blockless.
+	// Next allocate will attach a block.
+	bool  FreeLastBlock();
+
+	// Reset the current memory block usage to 0.
+	void  ClearCurrBlock(const bool zeroClear);
+
+	// -- Temporary Regions API
+	// region: Takes pointer to a zero-cleared DqnMemStackTempRegion struct.
+	// return: FALSE if arguments are invalid.
 	struct DqnMemStackTempRegion TempRegionBegin();
 	void                         TempRegionEnd  (DqnMemStackTempRegion region);
 
-	// Scoped Temporary Regions API
+	// -- Scoped Temporary Regions API
 	struct DqnMemStackTempRegionGuard TempRegionGuard();
 
-	// Advanced API
+	// -- Advanced API
+	// These are useful for forcing a new block to be used. AllocateCompatibleBlock() will fail if the
+	// supplied stack has flags set such that the stack is not allowed to have new blocks.
 	DqnMemStackBlock *AllocateCompatibleBlock(size_t size, const bool zeroClear);
 	bool              AttachBlock            (DqnMemStackBlock *const newBlock);
 	bool              DetachBlock            (DqnMemStackBlock *const detachBlock);
+
+	// (IMPORTANT) Should only be used to free blocks that haven't been attached! Attached blocks should
+	// be freed using DqnMemStack_FreeMemBlock().
     void              FreeDetachedBlock      (DqnMemStackBlock *memBlock);
-} DqnMemStack;
-
-////////////////////////////////////////////////////////////////////////////////
-//  DqnMemStack Initialisation
-////////////////////////////////////////////////////////////////////////////////
-// Uses fixed memory given by user. All allocations from the MemStack will be suballocated from the
-// given memory. Allocations fail after the MemStack becomes full.
-// stack:     Pass in a pointer to a zero cleared DqnMemStack struct.
-// mem:       Memory to use for the memory stack
-// byteAlign: Set the alignment of memory addresses for all allocated items from the memory stack.
-// return:    FALSE if args are invalid, or insufficient memSize.
-DQN_FILE_SCOPE bool DqnMemStack_InitWithFixedMem (DqnMemStack *const stack, u8 *const mem, const size_t memSize, const u32 byteAlign = 4);
-
-// The memory stack uses 1 initial allocation from the DqnMem_Alloc(). No further allocations are
-// made. All allocations are suballocated from the first allocation.
-// size: The amount of memory to allocate. Size gets aligned to the next "byteAlign"ed value.
-DQN_FILE_SCOPE bool DqnMemStack_InitWithFixedSize(DqnMemStack *const stack, size_t size, const bool zeroClear, const u32 byteAlign = 4);
-
-// Dynamically expandable stack. Akin to DqnMemStack_InitWithFixedSize() except if the MemStack does
-// not have enough space for allocation it will automatically attach another MemBlock using
-// DqnMem_Calloc().
-DQN_FILE_SCOPE bool DqnMemStack_Init(DqnMemStack *const stack, size_t size, const bool zeroClear, const u32 byteAlign = 4);
-
-////////////////////////////////////////////////////////////////////////////////
-//  DqnMemStack Memory Operations
-////////////////////////////////////////////////////////////////////////////////
-// Allocate memory from the MemStack.
-// size:   "size" gets aligned to the byte alignment of the stack. 
-// return: NULL if out of space OR stack is using fixed memory/size OR stack full and platform malloc fails.
-DQN_FILE_SCOPE void *DqnMemStack_Push(DqnMemStack *const stack, size_t size);
-
-// Frees the given ptr. It MUST be the last allocated item in the stack, fails otherwise.
-DQN_FILE_SCOPE bool  DqnMemStack_Pop(DqnMemStack *const stack, void *ptr, size_t size);
-
-// Frees all blocks belonging to this stack.
-DQN_FILE_SCOPE void  DqnMemStack_Free(DqnMemStack *const stack);
-
-// Frees the specified block belonging to the stack.
-// return: FALSE if block doesn't belong this into calls DqnMem_Free() or invalid args.
-DQN_FILE_SCOPE bool  DqnMemStack_FreeMemBlock(DqnMemStack *const stack, DqnMemStackBlock *memBlock);
-
-// Frees the last-most memory block. If last block, free that block making the MemStack blockless.
-// Next allocate will attach a block.
-DQN_FILE_SCOPE bool  DqnMemStack_FreeLastBlock(DqnMemStack *const stack);
-
-// Reset the current memory block usage to 0.
-DQN_FILE_SCOPE void  DqnMemStack_ClearCurrBlock(DqnMemStack *const stack, const bool zeroClear);
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 //  DqnMemStack Temporary Regions
@@ -340,23 +330,15 @@ typedef struct DqnMemStackTempRegion
 	size_t used;
 } DqnMemStackTempRegion;
 
-// region: Takes pointer to a zero-cleared DqnMemStackTempRegion struct.
-// return: FALSE if arguments are invalid.
-DQN_FILE_SCOPE bool DqnMemStackTempRegion_Begin(DqnMemStackTempRegion *const region, DqnMemStack *const stack);
-DQN_FILE_SCOPE void DqnMemStackTempRegion_End  (DqnMemStackTempRegion region);
-
-// Region guard automatically starts a region on construction and ends a region
-// on destruction.
+// Region guard automatically starts a region on construction and ends a region on destruction.
 struct DqnMemStackTempRegionGuard
 {
 	// stack: Takes a pointer to a pre-existing and already initialised stack
-	// bool:  Pass in (optionally) a pointer to a bool which returns whether construction was successful.
-	//        It is FALSE if stack is NULL.
-	DqnMemStackTempRegionGuard(DqnMemStack *const stack, bool *const succeeded);
+	DqnMemStackTempRegionGuard(DqnMemStack *const stack);
 	~DqnMemStackTempRegionGuard();
 
 private:
-	DqnMemStackTempRegion tempMemStack;
+	DqnMemStackTempRegion memRegion;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -374,16 +356,6 @@ typedef struct DqnMemStackBlock
 	// The allocator uses a linked list approach for additional blocks beyond capacity
 	DqnMemStackBlock *prevBlock;
 } DqnMemStackBlock;
-
-// These are useful for forcing a new block to be used. AllocateCompatibleBlock() will fail if the
-// supplied stack has flags set such that the stack is not allowed to have new blocks.
-DQN_FILE_SCOPE DqnMemStackBlock *DqnMemStack_AllocateCompatibleBlock(const DqnMemStack *const stack, size_t size, const bool zeroClear);
-DQN_FILE_SCOPE bool              DqnMemStack_AttachBlock            (DqnMemStack *const stack, DqnMemStackBlock *const newBlock);
-DQN_FILE_SCOPE bool              DqnMemStack_DetachBlock            (DqnMemStack *const stack, DqnMemStackBlock *const detachBlock);
-
-// (IMPORTANT) Should only be used to free blocks that haven't been attached! Attached blocks should
-// be freed using DqnMemStack_FreeMemBlock().
-DQN_FILE_SCOPE void DqnMemStack_FreeDetachedBlock(DqnMemStackBlock *memBlock);
 
 ////////////////////////////////////////////////////////////////////////////////
 // #DqnMemAPI Public API - Custom memory API for Dqn Data Structures
@@ -477,61 +449,59 @@ struct DqnArray
 	// API
 	bool  Init        (const i64 size, DqnMemAPI api = DqnMemAPI_HeapAllocator());
 	bool  Free        ();
-	bool  Resize      (i64 newMax);
+	bool  Resize      (const i64 newMax);
 	bool  Grow        ();
 	T    *Push        (const T *item, const i64 num);
 	T    *Push        (const T item);
 	void  Pop         ();
-	T    *Get         (i64 index);
-	bool  Clear       ();
-	bool  Remove      (i64 index);
-	bool  RemoveStable(i64 index);
+	T    *Get         (const i64 index);
+	void  Clear       (const bool clearMemory = false);
+	bool  Remove      (const i64 index);
+	bool  RemoveStable(const i64 index);
 };
 
 FILE_SCOPE const char *const DQN_MEM_API_CALLBACK_RESULT_TYPE_INCORRECT =
     "DqnMemAPICallbackResult type is incorrect";
 
 template <typename T>
-bool DqnArray_Init(DqnArray<T> *const array, const size_t size,
-                   const DqnMemAPI api = DqnMemAPI_HeapAllocator())
+bool DqnArray<T>::Init(const i64 size, const DqnMemAPI api = DqnMemAPI_HeapAllocator())
 {
-	if (!array) return false;
-	if (array->data) DqnArray_Free(array);
+	if (this->data) this->Free();
 
-	array->memAPI    = api;
+	this->memAPI    = api;
 	i64 allocateSize = size * sizeof(T);
 
-	DqnMemAPICallbackInfo info = DqnMemAPIInternal_CallbackInfoAskAlloc(array->memAPI, allocateSize);
-	DqnMemAPICallbackResult memResult = array->memAPI.callback(info);
+	DqnMemAPICallbackInfo info = DqnMemAPIInternal_CallbackInfoAskAlloc(this->memAPI, allocateSize);
+	DqnMemAPICallbackResult memResult = this->memAPI.callback(info);
 	if (!DQN_ASSERT_MSG(memResult.type == DqnMemAPICallbackType_Alloc, DQN_MEM_API_CALLBACK_RESULT_TYPE_INCORRECT))
 	{
 		return false;
 	}
 
-	array->data = (T *)memResult.newMemPtr;
-	if (!array->data) return false;
+	this->data = (T *)memResult.newMemPtr;
+	if (!this->data) return false;
 
-	array->count = 0;
-	array->max   = size;
+	this->count = 0;
+	this->max   = size;
 	return true;
 }
 
 // Implementation taken from Milton, developed by Serge at
 // https://github.com/serge-rgb/milton#license
 template <typename T>
-bool DqnArray_Free(DqnArray<T> *const array)
+bool DqnArray<T>::Free()
 {
-	if (array && array->data)
+	if (this->data)
 	{
 		// TODO(doyle): Right now we assume free always works, and it probably should?
-		i64 sizeToFree = array->max * sizeof(T);
+		i64 sizeToFree = this->max * sizeof(T);
 		DqnMemAPICallbackInfo info =
-		    DqnMemAPIInternal_CallbackInfoAskFree(array->memAPI, array->data, sizeToFree);
-		array->memAPI.callback(info);
-		array->data = NULL;
+		    DqnMemAPIInternal_CallbackInfoAskFree(this->memAPI, this->data, sizeToFree);
+		this->memAPI.callback(info);
+		this->data = NULL;
 
-		array->count = 0;
-		array->max   = 0;
+		this->count = 0;
+		this->max   = 0;
 		return true;
 	}
 
@@ -539,17 +509,17 @@ bool DqnArray_Free(DqnArray<T> *const array)
 }
 
 template <typename T>
-bool DqnArray_Resize(DqnArray<T> *const array, i64 newMax)
+bool DqnArray<T>::Resize(i64 newMax)
 {
-	if (!array || !array->data) return false;
+	if (!this->data) return false;
 
-	i64 oldSize = array->max * sizeof(T);
+	i64 oldSize = this->max * sizeof(T);
 	i64 newSize = newMax * sizeof(T);
 
 	DqnMemAPICallbackInfo info = DqnMemAPIInternal_CallbackInfoAskRealloc(
-	    array->memAPI, array->data, oldSize, newSize);
+	    this->memAPI, this->data, oldSize, newSize);
 
-	DqnMemAPICallbackResult memResult = array->memAPI.callback(info);
+	DqnMemAPICallbackResult memResult = this->memAPI.callback(info);
 	if (!DQN_ASSERT_MSG(memResult.type == DqnMemAPICallbackType_Realloc,
 	                    DQN_MEM_API_CALLBACK_RESULT_TYPE_INCORRECT))
 	{
@@ -558,8 +528,8 @@ bool DqnArray_Resize(DqnArray<T> *const array, i64 newMax)
 
 	if (memResult.newMemPtr)
 	{
-		array->data = (T *)memResult.newMemPtr;
-		array->max  = newMax;
+		this->data = (T *)memResult.newMemPtr;
+		this->max  = newMax;
 		return true;
 	}
 	else
@@ -569,130 +539,113 @@ bool DqnArray_Resize(DqnArray<T> *const array, i64 newMax)
 }
 
 template <typename T>
-bool DqnArray_Grow(DqnArray<T> *const array)
+bool DqnArray<T>::Grow()
 {
-	if (!array || !array->data) return false;
+	if (!this->data) return false;
 
-	const f32 GROWTH_FACTOR = 1.2f;
-	i64 newMax              = (i64)(array->max * GROWTH_FACTOR);
-	if (newMax == array->capacity) newMax++;
+	const f32 GROWTH_FACTOR = 2.0f;
+	i64 newMax              = (i64)(this->max * GROWTH_FACTOR);
+	if (newMax == this->capacity) newMax++;
 
-	bool result = DqnArray_Resize(array, newMax);
+	bool result = this->Resize(newMax);
 	return result;
 }
 
 template <typename T>
-T *DqnArray_Push(DqnArray<T> *const array, const T *item, const i64 num)
+T *DqnArray<T>::Push(const T *item, const i64 num)
 {
-	if (!array) return NULL;
-
-	i64 newSize = array->count + num;
-	if (array->count + num >= array->max)
+	i64 newSize = this->count + num;
+	if (this->count + num > this->max)
 	{
-		if (!DqnArray_Resize(array, newSize)) return NULL;
+		if (!this->Resize(newSize)) return NULL;
 	}
 
-	DQN_ASSERT(array->count < array->max);
-	for (auto i = 0; i < num; i++) array->data[array->count++] = item[i];
+	DQN_ASSERT(this->count < this->max);
+	for (auto i = 0; i < num; i++)
+	{
+		this->data[this->count++] = item[i];
+	}
 
-	return &array->data[array->count-1];
+	return &this->data[this->count-1];
 }
 
 template <typename T>
-T *DqnArray_Push(DqnArray<T> *const array, const T item)
+T *DqnArray<T>::Push(const T item)
 {
-	T* result = DqnArray_Push(array, &item, 1);
+	T* result = this->Push(&item, 1);
 	return result;
 }
 
 template <typename T>
-void DqnArray_Pop(DqnArray<T> *array)
+void DqnArray<T>::Pop()
 {
-	if (!array) return;
-	if (array->count == 0) return;
-	array->count--;
-
-	return;
+	if (this->count == 0) return;
+	this->count--;
 }
 
 template <typename T>
-T *DqnArray_Get(DqnArray<T> *const array, const i64 index)
+T *DqnArray<T>::Get(const i64 index)
 {
 	T *result = NULL;
-	if (index >= 0 && index <= array->count) result = &array->data[index];
+	if (index >= 0 && index <= this->count) result = &this->data[index];
 	return result;
 }
 
 template <typename T>
-bool DqnArray_Clear(DqnArray<T> *const array)
+void DqnArray<T>::Clear(bool clearMemory)
 {
-	if (array)
+	this->count = 0;
+	if (clearMemory)
 	{
-		array->count = 0;
-		return true;
+		i64 sizeToClear = sizeof(T) * this->count;
+		DqnMem_Clear(this->data, 0, sizeToClear);
 	}
-
-	return false;
 }
 
 template <typename T>
-bool DqnArray_Remove(DqnArray<T> *const array, const i64 index)
+bool DqnArray<T>::Remove(const i64 index)
 {
-	if (!array) return false;
-	if (index >= array->count) return false;
+	if (index >= this->count) return false;
 
-	bool firstElementAndOnlyElement = (index == 0 && array->count == 1);
-	bool isLastElement              = (index == (array->count - 1));
+	bool firstElementAndOnlyElement = (index == 0 && this->count == 1);
+	bool isLastElement              = (index == (this->count - 1));
 	if (firstElementAndOnlyElement || isLastElement)
 	{
-		array->count--;
+		this->count--;
 		return true;
 	}
 
-	array->data[index] = array->data[array->count - 1];
-	array->count--;
+	this->data[index] = this->data[this->count - 1];
+	this->count--;
 	return true;
 }
 
 template <typename T>
-bool DqnArray_RemoveStable(DqnArray<T> *const array, const i64 index)
+bool DqnArray<T>::RemoveStable(const i64 index)
 {
-	if (!array) return false;
-	if (index >= array->count) return false;
+	if (index >= this->count) return false;
 
-	bool firstElementAndOnlyElement = (index == 0 && array->count == 1);
-	bool isLastElement              = (index == (array->count - 1));
+	bool firstElementAndOnlyElement = (index == 0 && this->count == 1);
+	bool isLastElement              = (index == (this->count - 1));
 	if (firstElementAndOnlyElement || isLastElement)
 	{
-		array->count--;
+		this->count--;
 		return true;
 	}
 
 	i64 itemToRemoveByteOffset         = index * sizeof(T);
 	i64 oneAfterItemToRemoveByteOffset = (index + 1)  * sizeof(T);
-	i64 lastItemByteOffset             = array->count * sizeof(T);
+	i64 lastItemByteOffset             = this->count * sizeof(T);
 	i64 numBytesToMove                 = lastItemByteOffset - oneAfterItemToRemoveByteOffset;
 
-	u8 *bytePtr = (u8 *)array->data;
+	u8 *bytePtr = (u8 *)this->data;
 	u8 *dest    = &bytePtr[itemToRemoveByteOffset];
 	u8 *src     = &bytePtr[oneAfterItemToRemoveByteOffset];
 	memmove(dest, src, numBytesToMove);
 
-	array->count--;
+	this->count--;
 	return true;
 }
-
-template <typename T> bool DqnArray<T>::Init  (const i64 size, DqnMemAPI api) { return DqnArray_Init(this, size, api); }
-template <typename T> bool DqnArray<T>::Free  ()                              { return DqnArray_Free(this); }
-template <typename T> bool DqnArray<T>::Resize(i64 newMax)                    { return DqnArray_Resize(this, newMax); }
-template <typename T> bool DqnArray<T>::Grow  ()                              { return DqnArray_Grow(this);}
-template <typename T> T*   DqnArray<T>::Push  (const T *item, const i64 num)  { return DqnArray_Push(this, item, num); }
-template <typename T> T*   DqnArray<T>::Push  (const T item)                  { return DqnArray_Push(this, item); }
-template <typename T> void DqnArray<T>::Pop   ()                              { DqnArray_Pop(this); }
-template <typename T> T*   DqnArray<T>::Get   (const i64 index)               { return DqnArray_Get(this, index); }
-template <typename T> bool DqnArray<T>::Clear ()                              { return DqnArray_Clear (this); }
-template <typename T> bool DqnArray<T>::Remove      (const i64 index)         { return DqnArray_Remove(this, index); }
-template <typename T> bool DqnArray<T>::RemoveStable(const i64 index)         { return DqnArray_RemoveStable(this, index); }
 
 ////////////////////////////////////////////////////////////////////////////////
 // #DqnMath Public API - Simple Math Helpers
@@ -2112,45 +2065,13 @@ DqnMemStackInternal_AllocateBlock(u32 byteAlign, size_t size, const bool zeroCle
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// #DqnMemStack CPP Implementation
-////////////////////////////////////////////////////////////////////////////////
-bool DqnMemStack::InitWithFixedMem (u8 *const mem,     const size_t memSize, const u32 byteAlignment) { return DqnMemStack_InitWithFixedMem (this, mem, memSize, byteAlignment);    }
-bool DqnMemStack::InitWithFixedSize(const size_t size, const bool zeroClear, const u32 byteAlignment) { return DqnMemStack_InitWithFixedSize(this, size, zeroClear, byteAlignment); }
-bool DqnMemStack::Init             (const size_t size, const bool zeroClear, const u32 byteAlignment) { return DqnMemStack_Init             (this, size, zeroClear, byteAlignment); }
-
-void *DqnMemStack::Push(size_t size)                        { return DqnMemStack_Push(this, size);                }
-void  DqnMemStack::Pop (void *const ptr, size_t size)       {        DqnMemStack_Pop (this, ptr, size);           }
-void  DqnMemStack::Free()                                   {        DqnMemStack_Free(this);                      }
-bool  DqnMemStack::FreeMemBlock(DqnMemStackBlock *memBlock) { return DqnMemStack_FreeMemBlock(this, memBlock);       }
-bool  DqnMemStack::FreeLastBlock()                          { return DqnMemStack_FreeLastBlock(this);             }
-void  DqnMemStack::ClearCurrBlock(const bool zeroClear)     {        DqnMemStack_ClearCurrBlock(this, zeroClear); }
-
-DqnMemStackTempRegion DqnMemStack::TempRegionBegin()
-{
-	// NOTE: Should always succeed since the stack is guaranteed to exist.
-	DqnMemStackTempRegion result = {};
-	bool succeeded               = DqnMemStackTempRegion_Begin(&result, this);
-	DQN_ASSERT_HARD(succeeded);
-	return result;
-}
-void DqnMemStack::TempRegionEnd(DqnMemStackTempRegion region) { DqnMemStackTempRegion_End(region); }
-
-// NOTE: Guaranteed to always succeed. Fails when arguments are invalid, like a NULL ptr which is impossible here.
-DqnMemStackTempRegionGuard DqnMemStack::TempRegionGuard() { return DqnMemStackTempRegionGuard(this, NULL); }
-
-DqnMemStackBlock *DqnMemStack::AllocateCompatibleBlock(size_t size, const bool zeroClear)    { return DqnMemStack_AllocateCompatibleBlock(this, size, zeroClear); }
-bool              DqnMemStack::AttachBlock            (DqnMemStackBlock *const newBlock)     { return DqnMemStack_AttachBlock            (this, newBlock);        }
-bool              DqnMemStack::DetachBlock            (DqnMemStackBlock *const detachBlock)  { return DqnMemStack_DetachBlock            (this, detachBlock);     }
-void              DqnMemStack::FreeDetachedBlock      (DqnMemStackBlock *memBlock)           {        DqnMemStack_FreeDetachedBlock      (memBlock);              }
-
-////////////////////////////////////////////////////////////////////////////////
 // #DqnMemStack Initialisation Implementation
 ////////////////////////////////////////////////////////////////////////////////
-DQN_FILE_SCOPE bool DqnMemStack_InitWithFixedMem(DqnMemStack *const stack, u8 *const mem,
-                                                 const size_t memSize, const u32 byteAlign)
+DQN_FILE_SCOPE bool DqnMemStack::InitWithFixedMem(u8 *const mem, const size_t memSize,
+                                                  const u32 byteAlign_)
 {
 	// TODO(doyle): Logging
-	if (!stack || !mem) return false;
+	if (!mem) return false;
 
 	if (!DQN_ASSERT_MSG(
 	        memSize > sizeof(DqnMemStackBlock),
@@ -2160,75 +2081,74 @@ DQN_FILE_SCOPE bool DqnMemStack_InitWithFixedMem(DqnMemStack *const stack, u8 *c
 		return false;
 	}
 
-	stack->block            = (DqnMemStackBlock *)mem;
-	stack->block->memory    = mem + sizeof(DqnMemStackBlock);
-	stack->block->used      = 0;
-	stack->block->size      = memSize - sizeof(DqnMemStackBlock);
-	stack->block->prevBlock = NULL;
-	stack->flags = (DqnMemStackFlag_IsFixedMemoryFromUser | DqnMemStackFlag_IsNotExpandable);
+	this->block            = (DqnMemStackBlock *)mem;
+	this->block->memory    = mem + sizeof(DqnMemStackBlock);
+	this->block->used      = 0;
+	this->block->size      = memSize - sizeof(DqnMemStackBlock);
+	this->block->prevBlock = NULL;
+	this->flags = (DqnMemStackFlag_IsFixedMemoryFromUser | DqnMemStackFlag_IsNotExpandable);
 
 	const u32 DEFAULT_ALIGNMENT = 4;
-	stack->tempRegionCount      = 0;
-	stack->byteAlign = (byteAlign == 0) ? DEFAULT_ALIGNMENT : byteAlign;
+	this->tempRegionCount       = 0;
+	this->byteAlign             = (byteAlign_ == 0) ? DEFAULT_ALIGNMENT : byteAlign_;
 
-	DQN_ASSERT(!stack->block->prevBlock);
+	DQN_ASSERT(!this->block->prevBlock);
 	return true;
 }
 
-DQN_FILE_SCOPE bool DqnMemStack_InitWithFixedSize(DqnMemStack *const stack, size_t size,
-                                                  const bool zeroClear, const u32 byteAlign)
+DQN_FILE_SCOPE bool DqnMemStack::InitWithFixedSize(size_t size, const bool zeroClear,
+                                                   const u32 byteAlign_)
 {
-	bool result = DqnMemStack_Init(stack, size, zeroClear, byteAlign);
+	bool result = this->Init(size, zeroClear, byteAlign_);
 	if (result)
 	{
-		stack->flags |= DqnMemStackFlag_IsNotExpandable;
-		DQN_ASSERT(!stack->block->prevBlock);
+		this->flags |= DqnMemStackFlag_IsNotExpandable;
+		DQN_ASSERT(!this->block->prevBlock);
 		return true;
 	}
 
 	return false;
 }
 
-DQN_FILE_SCOPE bool DqnMemStack_Init(DqnMemStack *const stack, size_t size, const bool zeroClear,
-                                     const u32 byteAlign)
+DQN_FILE_SCOPE bool DqnMemStack::Init(size_t size, const bool zeroClear, const u32 byteAlign_)
 {
-	if (!stack || size <= 0) return false;
-	if (!DQN_ASSERT_MSG(!stack->block, "MemStack has pre-existing block already attached"))
+	if (!this || size <= 0) return false;
+	if (!DQN_ASSERT_MSG(!this->block, "MemStack has pre-existing block already attached"))
 		return false;
 
-	stack->block = DqnMemStackInternal_AllocateBlock(byteAlign, size, zeroClear);
-	if (!DQN_ASSERT_MSG(stack->block, "MemStack failed to allocate block, not enough memory"))
+	this->block = DqnMemStackInternal_AllocateBlock(byteAlign_, size, zeroClear);
+	if (!DQN_ASSERT_MSG(this->block, "MemStack failed to allocate block, not enough memory"))
 		return false;
 
-	stack->tempRegionCount = 0;
-	stack->byteAlign       = byteAlign;
-	stack->flags           = 0;
-	DQN_ASSERT(!stack->block->prevBlock);
+	this->tempRegionCount = 0;
+	this->byteAlign       = byteAlign_;
+	this->flags           = 0;
+	DQN_ASSERT(!this->block->prevBlock);
 	return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // #DqnMemStack Push/Pop/Free Implementation
 ////////////////////////////////////////////////////////////////////////////////
-DQN_FILE_SCOPE void *DqnMemStack_Push(DqnMemStack *const stack, size_t size)
+DQN_FILE_SCOPE void *DqnMemStack::Push(size_t size)
 {
-	if (!stack || size == 0) return NULL;
+	if (size == 0) return NULL;
 
-	size_t alignedSize = DQN_ALIGN_POW_N(size, stack->byteAlign);
-	if (!stack->block ||
-	    (stack->block->used + alignedSize) > stack->block->size)
+	size_t alignedSize = DQN_ALIGN_POW_N(size, this->byteAlign);
+	if (!this->block ||
+	    (this->block->used + alignedSize) > this->block->size)
 	{
 		size_t newBlockSize;
 		// TODO(doyle): Allocate block size based on the aligned size or
 		// a minimum block size? Not allocate based on the current block
 		// size
-		if (stack->block) newBlockSize = DQN_MAX(alignedSize, stack->block->size);
+		if (this->block) newBlockSize = DQN_MAX(alignedSize, this->block->size);
 		else newBlockSize = alignedSize;
 
-		DqnMemStackBlock *newBlock = DqnMemStack_AllocateCompatibleBlock(stack, newBlockSize, true);
+		DqnMemStackBlock *newBlock = this->AllocateCompatibleBlock(newBlockSize, true);
 		if (newBlock)
 		{
-			bool blockAttachResult = DqnMemStack_AttachBlock(stack, newBlock);
+			bool blockAttachResult = this->AttachBlock(newBlock);
 			// IMPORTANT(doyle): This should be impossible, considering that
 			// AllocateCompatibleBlock checks the preconditions that the new
 			// block should be able to be attached.
@@ -2245,8 +2165,8 @@ DQN_FILE_SCOPE void *DqnMemStack_Push(DqnMemStack *const stack, size_t size)
 		}
 	}
 
-	u8 *currPointer        = stack->block->memory + stack->block->used;
-	u8 *alignedResult      = (u8 *)DQN_ALIGN_POW_N(currPointer, stack->byteAlign);
+	u8 *currPointer        = this->block->memory + this->block->used;
+	u8 *alignedResult      = (u8 *)DQN_ALIGN_POW_N(currPointer, this->byteAlign);
 	size_t alignmentOffset = (size_t)(alignedResult - currPointer);
 
 	// NOTE(doyle): Since all stack can't change alignment once they've been
@@ -2257,27 +2177,27 @@ DQN_FILE_SCOPE void *DqnMemStack_Push(DqnMemStack *const stack, size_t size)
 	DQN_ASSERT_HARD(alignmentOffset == 0);
 
 	void *result = alignedResult;
-	stack->block->used += (alignedSize + alignmentOffset);
-	DQN_ASSERT_HARD(stack->block->used <= stack->block->size);
+	this->block->used += (alignedSize + alignmentOffset);
+	DQN_ASSERT_HARD(this->block->used <= this->block->size);
 	return result;
 }
 
-DQN_FILE_SCOPE bool DqnMemStack_Pop(DqnMemStack *const stack, void *ptr, size_t size)
+DQN_FILE_SCOPE bool DqnMemStack::Pop(void *const ptr, size_t size)
 {
-	if (!stack || !stack->block) return false;
+	if (!this->block) return false;
 
-	u8 *currPtr = stack->block->memory + stack->block->used;
-	if (DQN_ASSERT_MSG((u8 *)ptr >= stack->block->memory && ptr < currPtr,
+	u8 *currPtr = this->block->memory + this->block->used;
+	if (DQN_ASSERT_MSG((u8 *)ptr >= this->block->memory && ptr < currPtr,
 	                   "'ptr' to pop does not belong to current memStack attached block"))
 	{
 		size_t calcSize = (size_t)currPtr - (size_t)ptr;
-		size_t sizeAligned = DQN_ALIGN_POW_N(size, stack->byteAlign);
+		size_t sizeAligned = DQN_ALIGN_POW_N(size, this->byteAlign);
 		if (DQN_ASSERT_MSG(calcSize == sizeAligned, "'ptr' was not the last item allocated to memStack"))
 		{
-			stack->block->used -= sizeAligned;
-			if (stack->block->used == 0 && stack->block->prevBlock)
+			this->block->used -= sizeAligned;
+			if (this->block->used == 0 && this->block->prevBlock)
 			{
-				return DQN_ASSERT(DqnMemStack_FreeLastBlock(stack));
+				return DQN_ASSERT(this->FreeLastBlock());
 			}
 			return true;
 		}
@@ -2286,33 +2206,31 @@ DQN_FILE_SCOPE bool DqnMemStack_Pop(DqnMemStack *const stack, void *ptr, size_t 
 	return false;
 }
 
-DQN_FILE_SCOPE void DqnMemStack_Free(DqnMemStack *stack)
+DQN_FILE_SCOPE void DqnMemStack::Free()
 {
-	if (!stack) return;
-
 	// NOTE(doyle): User is in charge of freeing this memory, so all we need to
 	// do is clear the block.
-	if (stack->flags & DqnMemStackFlag_IsFixedMemoryFromUser)
+	if (this->flags & DqnMemStackFlag_IsFixedMemoryFromUser)
 	{
-		DQN_ASSERT_HARD(!stack->block->prevBlock);
-		DqnMemStack_ClearCurrBlock(stack, false);
+		DQN_ASSERT_HARD(!this->block->prevBlock);
+		this->ClearCurrBlock(false);
 		return;
 	}
 
-	while (stack->block)
-		DqnMemStack_FreeLastBlock(stack);
+	while (this->block)
+		this->FreeLastBlock();
 
 	// After a stack is free, we reset the not expandable flag so that if we
 	// allocate on an empty stack it still works.
-	stack->flags &= ~DqnMemStackFlag_IsNotExpandable;
+	this->flags &= ~DqnMemStackFlag_IsNotExpandable;
 }
 
-DQN_FILE_SCOPE bool DqnMemStack_FreeMemBlock(DqnMemStack *const stack, DqnMemStackBlock *memBlock)
+DQN_FILE_SCOPE bool DqnMemStack::FreeMemBlock(DqnMemStackBlock *memBlock)
 {
-	if (!stack || !memBlock || !stack->block) return false;
-	if (stack->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return false;
+	if (!memBlock || !this->block) return false;
+	if (this->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return false;
 
-	DqnMemStackBlock **blockPtr = &stack->block;
+	DqnMemStackBlock **blockPtr = &this->block;
 
 	while (*blockPtr && (*blockPtr) != memBlock)
 		blockPtr = &((*blockPtr)->prevBlock);
@@ -2324,28 +2242,27 @@ DQN_FILE_SCOPE bool DqnMemStack_FreeMemBlock(DqnMemStack *const stack, DqnMemSta
 		DqnMem_Free(blockToFree);
 
 		// No more blocks, then last block has been freed
-		if (!stack->block) DQN_ASSERT_HARD(stack->tempRegionCount == 0);
+		if (!this->block) DQN_ASSERT_HARD(this->tempRegionCount == 0);
 		return true;
 	}
 
 	return false;
 }
 
-DQN_FILE_SCOPE bool DqnMemStack_FreeLastBlock(DqnMemStack *const stack)
+DQN_FILE_SCOPE bool DqnMemStack::FreeLastBlock()
 {
-	bool result = DqnMemStack_FreeMemBlock(stack, stack->block);
+	bool result = this->FreeMemBlock(this->block);
 	return result;
 }
 
-DQN_FILE_SCOPE void DqnMemStack_ClearCurrBlock(DqnMemStack *const stack, const bool zeroClear)
+DQN_FILE_SCOPE void DqnMemStack::ClearCurrBlock(const bool zeroClear)
 {
-	if (!stack) return;
-	if (stack->block)
+	if (this->block)
 	{
-		stack->block->used = 0;
+		this->block->used = 0;
 		if (zeroClear)
 		{
-			DqnMem_Clear(stack->block->memory, 0, stack->block->size);
+			DqnMem_Clear(this->block->memory, 0, this->block->size);
 		}
 	}
 }
@@ -2353,89 +2270,84 @@ DQN_FILE_SCOPE void DqnMemStack_ClearCurrBlock(DqnMemStack *const stack, const b
 ////////////////////////////////////////////////////////////////////////////////
 // #DqnMemStackTempRegion Implementation
 ////////////////////////////////////////////////////////////////////////////////
-DQN_FILE_SCOPE bool DqnMemStackTempRegion_Begin(DqnMemStackTempRegion *const region,
-                                                DqnMemStack *const stack)
+DQN_FILE_SCOPE DqnMemStackTempRegion DqnMemStack::TempRegionBegin()
 {
-	if (!region || !stack) return false;
+	DqnMemStackTempRegion result;
+	result.stack         = this;
+	result.startingBlock = this->block;
+	result.used          = this->block->used;
+	this->tempRegionCount++;
 
-	region->stack           = stack;
-	region->startingBlock   = stack->block;
-	region->used            = stack->block->used;
-
-	stack->tempRegionCount++;
-	return true;
+	return result;
 }
 
-DQN_FILE_SCOPE void DqnMemStackTempRegion_End(DqnMemStackTempRegion region)
+DQN_FILE_SCOPE void DqnMemStack::TempRegionEnd(DqnMemStackTempRegion region)
 {
 	DqnMemStack *stack = region.stack;
-	while (stack->block != region.startingBlock)
-		DqnMemStack_FreeLastBlock(stack);
+	DQN_ASSERT(stack == this);
 
-	if (stack->block)
+	while (this->block != region.startingBlock)
+		this->FreeLastBlock();
+
+	if (this->block)
 	{
-		DQN_ASSERT_HARD(stack->block->used >= region.used);
-		stack->block->used = region.used;
+		DQN_ASSERT_HARD(this->block->used >= region.used);
+		this->block->used = region.used;
 	}
 
-	stack->tempRegionCount--;
-	DQN_ASSERT_HARD(stack->tempRegionCount >= 0);
+	this->tempRegionCount--;
+	DQN_ASSERT_HARD(this->tempRegionCount >= 0);
 }
 
-DqnMemStackTempRegionGuard::DqnMemStackTempRegionGuard(DqnMemStack *const stack, bool *const succeeded)
+DqnMemStackTempRegionGuard DqnMemStack::TempRegionGuard()
 {
-	if (stack)
-	{
-		DQN_ASSERT_HARD(DqnMemStackTempRegion_Begin(&this->tempMemStack, stack));
-		if (succeeded) *succeeded = true;
-	}
-	else
-	{
-		if (succeeded) *succeeded = false;
-	}
+	return DqnMemStackTempRegionGuard(this);
+}
+
+DqnMemStackTempRegionGuard::DqnMemStackTempRegionGuard(DqnMemStack *const stack)
+{
+	this->memRegion = stack->TempRegionBegin();
 }
 
 DqnMemStackTempRegionGuard::~DqnMemStackTempRegionGuard()
 {
-	DqnMemStackTempRegion_End(this->tempMemStack);
+	const DqnMemStackTempRegion &region = this->memRegion;
+	DqnMemStack *const stack            = region.stack;
+	stack->TempRegionEnd(region);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // #DqnMemStack Advanced API Implementation
 ////////////////////////////////////////////////////////////////////////////////
-DQN_FILE_SCOPE DqnMemStackBlock *DqnMemStack_AllocateCompatibleBlock(const DqnMemStack *const stack,
-                                                                     size_t size,
-                                                                     const bool zeroClear)
+DQN_FILE_SCOPE DqnMemStackBlock *DqnMemStack::AllocateCompatibleBlock(size_t size,
+                                                                      const bool zeroClear)
 {
-	if (!stack) return NULL;
-	if (stack->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return NULL;
-	if (stack->flags & DqnMemStackFlag_IsNotExpandable)       return NULL;
+	if (this->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return NULL;
+	if (this->flags & DqnMemStackFlag_IsNotExpandable)       return NULL;
 
-	DqnMemStackBlock *block =
-	    DqnMemStackInternal_AllocateBlock(stack->byteAlign, size, zeroClear);
-	return block;
+	DqnMemStackBlock *memBlock =
+	    DqnMemStackInternal_AllocateBlock(this->byteAlign, size, zeroClear);
+	return memBlock;
 }
 
-DQN_FILE_SCOPE bool DqnMemStack_AttachBlock(DqnMemStack *const stack,
-                                            DqnMemStackBlock *const newBlock)
+DQN_FILE_SCOPE bool DqnMemStack::AttachBlock(DqnMemStackBlock *const newBlock)
 {
-	if (!stack || !newBlock) return false;
-	if (stack->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return false;
-	if (stack->flags & DqnMemStackFlag_IsNotExpandable)       return false;
+	if (!newBlock) return false;
+	if (this->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return false;
+	if (this->flags & DqnMemStackFlag_IsNotExpandable)       return false;
 
-	newBlock->prevBlock = stack->block;
-	stack->block        = newBlock;
+	newBlock->prevBlock = this->block;
+	this->block         = newBlock;
 	return true;
 }
 
-DQN_FILE_SCOPE bool DqnMemStack_DetachBlock(DqnMemStack *const stack,
-                                            DqnMemStackBlock *const detachBlock)
+DQN_FILE_SCOPE bool DqnMemStack::DetachBlock(DqnMemStackBlock *const detachBlock)
 {
-	if (!stack || !detachBlock) return false;
-	if (stack->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return false;
-	if (stack->flags & DqnMemStackFlag_IsNotExpandable)       return false;
+	if (!detachBlock) return false;
+	if (this->flags & DqnMemStackFlag_IsFixedMemoryFromUser) return false;
+	if (this->flags & DqnMemStackFlag_IsNotExpandable)       return false;
 
-	DqnMemStackBlock **blockPtr = &stack->block;
+	DqnMemStackBlock **blockPtr = &this->block;
 	while (*blockPtr && *blockPtr != detachBlock)
 		blockPtr = &((*blockPtr)->prevBlock);
 
@@ -2452,7 +2364,7 @@ DQN_FILE_SCOPE bool DqnMemStack_DetachBlock(DqnMemStack *const stack,
 	return true;
 }
 
-DQN_FILE_SCOPE void DqnMemStack_FreeDetachedBlock(DqnMemStackBlock *memBlock)
+DQN_FILE_SCOPE void DqnMemStack::FreeDetachedBlock(DqnMemStackBlock *memBlock)
 {
 	if (!memBlock) return;
 	DqnMem_Free(memBlock);
@@ -2596,13 +2508,18 @@ FILE_SCOPE DqnMemAPICallbackResult DqnMemAPIInternal_StackAllocatorCallback(DqnM
 		{
 			result.type      = info.type;
 			result.newMemPtr = stack->Push(info.requestSize);
+
+			if (info.clearToZero)
+			{
+				DqnMem_Clear(result.newMemPtr, 0, info.requestSize);
+			}
 		}
 		break;
 
 		case DqnMemAPICallbackType_Realloc:
 		{
 			// IMPORTANT: This is a _naive_ realloc scheme for stack allocation.
-			result.type      = info.type;
+			result.type = info.type;
 
 			DqnMemStackBlock *block = stack->block;
 			u8 *currUsagePtr        = (u8 *)(block->memory + block->used);
@@ -2620,7 +2537,13 @@ FILE_SCOPE DqnMemAPICallbackResult DqnMemAPIInternal_StackAllocatorCallback(DqnM
 				if (enoughSpace)
 				{
 					result.newMemPtr = info.oldMemPtr;
-					stack->Push(remainingBytesToAlloc);
+					u8 *startPtr     = (u8 *)stack->Push(remainingBytesToAlloc);
+
+					if (info.clearToZero)
+					{
+						DqnMem_Clear(startPtr, 0, remainingBytesToAlloc);
+					}
+
 					return result;
 				}
 
@@ -2629,9 +2552,6 @@ FILE_SCOPE DqnMemAPICallbackResult DqnMemAPIInternal_StackAllocatorCallback(DqnM
 				stack->Pop(info.oldMemPtr, info.oldSize);
 				result.newMemPtr = stack->Push(info.newRequestSize);
 				return result;
-				
-
-				// TODO: Some bug here
 			}
 
 			// NOTE: Lost memory when this case occurs.
@@ -3707,7 +3627,6 @@ DQN_FILE_SCOPE i32 DqnStr_ReadUTF8Codepoint(const u32 *const a, u32 *outCodepoin
 	u8 *byte = (u8 *)a;
 	if (a && byte[0])
 	{
-		u32 character      = *a;
 		i32 numBytesInChar = 0;
 		u32 actualChar     = 0;
 
@@ -3719,7 +3638,6 @@ DQN_FILE_SCOPE i32 DqnStr_ReadUTF8Codepoint(const u32 *const a, u32 *outCodepoin
 		else if ((byte[0] & 0xE0) == 0xC0)
 		{
 			// Header 110xxxxx 10xxxxxx
-			u32 byte2      = character >> 16;
 			actualChar     = ((u32)(byte[0] & 0x3F) << 6)
 			               | ((u32)(byte[1] & 0x1F) << 0);
 			numBytesInChar = 2;
@@ -3727,7 +3645,6 @@ DQN_FILE_SCOPE i32 DqnStr_ReadUTF8Codepoint(const u32 *const a, u32 *outCodepoin
 		else if ((byte[0] & 0xF0) == 0xE0)
 		{
 			// Header 1110xxxx 10xxxxxx 10xxxxxx
-			u32 byte3      = character >> 8;
 			actualChar     = ((u32)(byte[0] & 0x0F) << 12)
 			               | ((u32)(byte[1] & 0x3F) << 6 )
 			               | ((u32)(byte[2] & 0x3F) << 0 );
@@ -3736,7 +3653,6 @@ DQN_FILE_SCOPE i32 DqnStr_ReadUTF8Codepoint(const u32 *const a, u32 *outCodepoin
 		else if ((byte[0] & 0xF8) == 0xF0)
 		{
 			// Header 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-			u32 byte4  = character >> 0;
 			actualChar = ((u32)(byte[0] & 0x07) << 18)
 			           | ((u32)(byte[1] & 0x3F) << 12)
 			           | ((u32)(byte[2] & 0x3F) << 6 )
@@ -4112,10 +4028,10 @@ DQN_FILE_SCOPE u32 Dqn_UTF8ToUCS(u32 *const dest, const u32 character)
 {
 	if (!dest) return 0;
 
-	const u32 HEADER_BITS_4_BYTES = (0xF0808080u <<  0);
-	const u32 HEADER_BITS_3_BYTES = (0xE08080u   <<  8);
-	const u32 HEADER_BITS_2_BYTES = (0xC000u     << 16);
-	const u32 HEADER_BITS_1_BYTE  = (0x80u       << 24);
+	const u32 HEADER_BITS_4_BYTES = 0xF0808080u;
+	const u32 HEADER_BITS_3_BYTES = 0xE08080u;
+	const u32 HEADER_BITS_2_BYTES = 0xC000u;
+	const u32 HEADER_BITS_1_BYTE  = 0x80u;
 
 	// UTF Header Bits     : 11110000 10000000 10000000 10000000
 	// UTF Bit Arrangement : 00000xxx 00xxxxxx 00xxxxxx 00xxxxxx
@@ -4125,7 +4041,7 @@ DQN_FILE_SCOPE u32 Dqn_UTF8ToUCS(u32 *const dest, const u32 character)
 		u32 utfWithoutHeader = HEADER_BITS_4_BYTES ^ character;
 
 		u32 firstByte  = utfWithoutHeader & 0x3F;
-		u32 secondByte = (utfWithoutHeader >> 8)  & 0x3F;
+		u32 secondByte = (utfWithoutHeader >> 8) & 0x3F;
 		u32 thirdByte  = (utfWithoutHeader >> 16) & 0x3F;
 		u32 fourthByte = utfWithoutHeader >> 24;
 

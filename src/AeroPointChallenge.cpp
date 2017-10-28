@@ -38,7 +38,7 @@ FILE_SCOPE void DieSafely()
 	} while (0)
 
 FILE_SCOPE void CheckCurl(const CURLcode result, const char *const file, const i32 lineNum,
-                          const char *const expr)
+                           const char *const expr)
 {
 	const char *errorMsg = curl_easy_strerror(result);
 	printf("%s|%d|%s failed: %s\n", file, lineNum, expr, errorMsg);
@@ -418,6 +418,8 @@ i32 main(i32 argc, char *argv[])
 	// Execute TEQC Merge
 	////////////////////////////////////////////////////////////////////////////
 	{
+		auto memGuard0 = context.tmpMem.TempRegionGuard();
+
 		DqnString exeDir; exeDir.InitSize(1024, globalTmpMemAPI);
 		i32 offsetToLastBackslash = DqnWin32_GetEXEDirectory(exeDir.str, exeDir.max);
 		while (offsetToLastBackslash == -1)
